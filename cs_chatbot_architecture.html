@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CS 챗봇 시스템 아키텍처</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<style>
+  @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+  :root {
+    --bg: #0f172a; --surface: #1e293b; --surface2: #253348; --border: #334155;
+    --text: #e2e8f0; --text-sub: #cbd5e1; --text-muted: #94a3b8;
+    --accent: #38bdf8; --accent2: #818cf8;
+    --green: #4ade80; --green-dim: rgba(74,222,128,.15);
+    --orange: #fb923c; --orange-dim: rgba(251,146,60,.15);
+    --red: #f87171; --red-dim: rgba(248,113,113,.15);
+    --blue-dim: rgba(56,189,248,.1); --purple-dim: rgba(129,140,248,.1);
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:'Pretendard',-apple-system,'Segoe UI',sans-serif; background:var(--bg); color:var(--text); line-height:1.75; }
+
+  /* Nav */
+  nav { position:fixed; top:0; left:0; width:260px; height:100vh; background:var(--surface); border-right:1px solid var(--border); padding:24px 16px; overflow-y:auto; z-index:100; }
+  nav h2 { font-size:13px; color:var(--accent); margin-bottom:16px; letter-spacing:1px; text-transform:uppercase; }
+  nav a { display:block; padding:7px 12px; color:var(--text-muted); text-decoration:none; font-size:13px; border-radius:6px; margin-bottom:2px; transition:all .2s; }
+  nav a:hover, nav a.active { background:var(--blue-dim); color:var(--accent); }
+  nav .sub { padding-left:20px; font-size:12px; }
+
+  /* Main */
+  main { margin-left:260px; padding:40px 56px 80px; max-width:1400px; }
+  section { margin-bottom:56px; scroll-margin-top:24px; }
+
+  /* Typography */
+  h2 { font-size:26px; color:#f1f5f9; margin-bottom:20px; padding-bottom:8px; border-bottom:2px solid var(--accent); }
+  h3 { font-size:17px; color:var(--accent2); margin:28px 0 10px; }
+  p { font-size:15px; color:var(--text-sub); margin-bottom:10px; }
+  strong { color:#f1f5f9; }
+  code { background:var(--blue-dim); color:var(--accent); padding:2px 6px; border-radius:4px; font-size:13px; }
+
+  /* Tables */
+  table { width:100%; border-collapse:collapse; margin:14px 0 22px; font-size:14px; }
+  th { background:var(--surface2); color:var(--accent); padding:10px 14px; text-align:left; font-weight:600; border-bottom:2px solid var(--accent); }
+  td { padding:10px 14px; border-bottom:1px solid var(--border); color:var(--text-sub); }
+  tr:hover td { background:rgba(56,189,248,.04); }
+
+  /* Diagram */
+  .diagram { background:#fff; border-radius:12px; padding:32px 36px; margin:18px 0 26px; overflow-x:auto; position:relative; cursor:pointer; }
+  .diagram::after { content:'Click to expand'; position:absolute; top:10px; right:16px; font-size:11px; color:#94a3b8; background:rgba(255,255,255,.85); padding:2px 8px; border-radius:4px; pointer-events:none; }
+  .diagram:hover { box-shadow:0 0 0 2px var(--accent); }
+  .diagram .mermaid { display:flex; justify-content:center; }
+  .diagram .mermaid svg { max-width:100%; height:auto; }
+  .diagram-note { font-size:13px; color:var(--text-muted); text-align:center; margin-top:8px; font-style:italic; }
+
+  /* Fullscreen modal */
+  .modal-overlay { display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,.85); z-index:9999; justify-content:center; align-items:center; cursor:zoom-out; }
+  .modal-overlay.active { display:flex; }
+  .modal-content { background:#fff; border-radius:16px; padding:40px; max-width:95vw; max-height:92vh; overflow:auto; position:relative; cursor:default; }
+  .modal-content svg { width:auto; height:auto; max-height:85vh; }
+  .modal-close { position:absolute; top:12px; right:16px; font-size:14px; color:#64748b; cursor:pointer; background:#f1f5f9; border:none; padding:6px 14px; border-radius:6px; }
+  .modal-close:hover { background:#e2e8f0; color:#1e293b; }
+  .modal-hint { position:absolute; bottom:12px; right:16px; font-size:11px; color:#94a3b8; }
+
+  /* Card */
+  .card { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:20px 24px; margin:14px 0; }
+
+  /* Badge */
+  .badge { display:inline-block; padding:3px 10px; border-radius:6px; font-size:12px; font-weight:600; }
+  .bg { background:var(--green-dim); color:var(--green); }
+  .bo { background:var(--orange-dim); color:var(--orange); }
+  .br { background:var(--red-dim); color:var(--red); }
+  .bb { background:var(--blue-dim); color:var(--accent); }
+  .bp { background:var(--purple-dim); color:var(--accent2); }
+
+  /* Callout */
+  .callout { background:var(--blue-dim); border-left:3px solid var(--accent); padding:12px 16px; border-radius:0 8px 8px 0; margin:14px 0; font-size:14px; }
+  .callout-green { background:var(--green-dim); border-left-color:var(--green); }
+
+  /* Lists */
+  ul,ol { padding-left:20px; margin:8px 0 14px; }
+  li { font-size:14px; color:var(--text-sub); margin-bottom:5px; }
+
+  /* Code block */
+  pre.codeblock { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:14px 18px; font-size:13px; color:var(--text-muted); overflow-x:auto; margin:10px 0; font-family:'SF Mono','Fira Code',monospace; }
+
+  @media(max-width:900px){
+    nav{display:none}
+    main{margin-left:0;padding:24px}
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <h2>CS 챗봇 아키텍처</h2>
+  <a href="#s1">1. 시스템 개요</a>
+  <a href="#s2">2. 전체 시스템 아키텍처</a>
+  <a href="#s2a" class="sub">정상 처리 흐름</a>
+  <a href="#s2b" class="sub">의도 분류 경로</a>
+  <a href="#s2c" class="sub">FAQ 후보 풀 → Gemini 전달</a>
+  <a href="#s2d" class="sub">Gemini 장애 폴백</a>
+  <a href="#s2e" class="sub">주요 연동 흐름</a>
+  <a href="#s3">3. 요청 처리 파이프라인</a>
+  <a href="#s4">4. 핵심 컴포넌트</a>
+  <a href="#s4a" class="sub">Orchestrator</a>
+  <a href="#s4b" class="sub">SemanticMatcher</a>
+  <a href="#s4c" class="sub">형태소 분석 (KiwiPy)</a>
+  <a href="#s4d" class="sub">CrossEncoder</a>
+  <a href="#s4e" class="sub">오타 보정</a>
+  <a href="#s4f" class="sub">도메인 별칭 확장</a>
+  <a href="#s4g" class="sub">IntentService</a>
+  <a href="#s4h" class="sub">Gemini 폴백 전략</a>
+  <a href="#s4i" class="sub">SessionService</a>
+  <a href="#s5">5. 의도 분류 체계</a>
+  <a href="#s6">6. FAQ 매칭 파이프라인</a>
+  <a href="#s7">7. 멀티턴 대화 관리</a>
+  <a href="#s8">8. 배포 아키텍처</a>
+  <a href="#s9">9. API 엔드포인트</a>
+  <a href="#s10">10. 성능 특성</a>
+</nav>
+
+<main>
+
+<!-- 1 -->
+<section id="s1">
+<h2>1. 시스템 개요</h2>
+<p>KareChat CS Agent는 <strong>병원 FAQ/CS 기반 AI 챗봇 시스템</strong>입니다.<br>사용자 질문을 분석하여 FAQ/CS 매칭, LLM 기반 응답 생성, 실시간 정보 조회를 수행합니다.</p>
+
+<h3>핵심 기능</h3>
+<table>
+<tr><th>기능</th><th>설명</th></tr>
+<tr><td>FAQ 시맨틱 매칭</td><td>Sentence Transformer 기반 질문-답변 유사도 검색</td></tr>
+<tr><td>LLM 의도 분류</td><td>Gemini를 활용한 6가지 의도(Intent) 자동 분류</td></tr>
+<tr><td>멀티턴 대화</td><td>Redis 기반 세션 관리로 문맥 유지</td></tr>
+<tr><td>실시간 정보</td><td>병원 연락처, 주소 등 실시간 정보 응답</td></tr>
+</table>
+
+<h3>기술 스택</h3>
+<table>
+<tr><th>구분</th><th>기술</th><th>용도</th></tr>
+<tr><td><strong>웹 프레임워크</strong></td><td>FastAPI + Uvicorn</td><td>비동기 API 서버</td></tr>
+<tr><td><strong>프로세스 관리</strong></td><td>Gunicorn</td><td>멀티 워커 운영</td></tr>
+<tr><td><strong>LLM</strong></td><td>Google Vertex AI (Gemini 2.5 Flash)</td><td>의도 분류, 응답 생성</td></tr>
+<tr><td><strong>시맨틱 매칭</strong></td><td>Sentence Transformers (<code>ko-sroberta-multitask</code>)</td><td>질문 임베딩 및 유사도 검색</td></tr>
+<tr><td><strong>Re-ranking</strong></td><td>Cross-Encoder (<code>bge-reranker-v2-m3</code>)</td><td>후보 재순위</td></tr>
+<tr><td><strong>세션 관리</strong></td><td>Redis</td><td>분산 세션 및 임베딩 캐시</td></tr>
+<tr><td><strong>형태소 분석</strong></td><td>KiwiPy</td><td>한국어 형태소 분석</td></tr>
+<tr><td><strong>모니터링</strong></td><td>Prometheus</td><td>요청 메트릭, CPU/메모리</td></tr>
+<tr><td><strong>배포</strong></td><td>Docker + GitHub Actions</td><td>컨테이너화 및 CI/CD</td></tr>
+</table>
+</section>
+
+<!-- 2 -->
+<section id="s2">
+<h2>2. 전체 시스템 아키텍처</h2>
+
+<h3 id="s2a">정상 처리 흐름 (FAQ 매칭 성공)</h3>
+<p>사용자 질문이 FAQ에 고신뢰로 매칭되어 Gemini 호출 없이 즉시 응답하는 최적 경로입니다.</p>
+<div class="diagram"><pre class="mermaid">
+sequenceDiagram
+    participant 사용자 as User (Frontend)
+    participant API as FastAPI
+    participant 입장제어 as AdmissionControl
+    participant 오케 as Orchestrator
+    participant 세션 as SessionService
+    participant Redis
+    participant 전처리 as PreIntentPipeline
+    participant Gemini as Gemini (Vertex AI)
+    participant 라우터 as RuleBasedRouter
+    participant 시맨틱 as SemanticMatcher
+    participant 크로스 as CrossEncoder
+    participant 백오피스 as Backoffice API
+    participant 핸들러 as FAQHandler
+    participant 응답조립 as ResponseAssembly
+
+    사용자->>API: 1. POST /api/chat {message, conversationId}
+    Note over API,입장제어: 2. 동시 요청 제한 확인
+    입장제어->>Redis: 3. 글로벌 in-flight 카운터 확인
+    Redis-->>입장제어: 4. 현재 요청 수 반환
+    alt 동시 요청 초과 (>= 2)
+        입장제어-->>사용자: 429 과부하 응답
+    else 정상 범위
+        입장제어->>오케: 5. process_message() 호출
+    end
+    Note over 오케,세션: 6. 세션 히스토리 로드
+    오케->>세션: 7. get_recent_messages(conversation_id)
+    세션->>Redis: 8. 세션 데이터 조회 (최대 7턴)
+    Redis-->>세션: 9. 대화 히스토리 + 상태 반환
+    세션-->>오케: 10. ConversationState 반환
+    Note over 오케,Gemini: 11. 전처리 파이프라인
+    오케->>전처리: 12. 안전성 검사 (PII/부적절 콘텐츠)
+    전처리->>Gemini: 13. 오타 보정 요청 (flash-lite, 15초 타임아웃)
+    Gemini-->>전처리: 14. 보정된 질문 반환
+    전처리->>전처리: 15. 도메인 별칭 확장 (병원 약칭 → 정식명칭)
+    전처리-->>오케: 16. 정규화된 질문 반환
+    Note over 오케,백오피스: 17. FAQ 빠른 매칭
+    오케->>라우터: 18. match(정규화된 질문)
+    라우터->>백오피스: 19. FAQ 목록 조회 (5분 캐시)
+    백오피스-->>라우터: 20. FAQ 데이터 반환
+    라우터->>시맨틱: 21. 시맨틱 매칭 (Bi-encoder Top-10)
+    Note over 시맨틱: KiwiPy 형태소 분석 → 임베딩 → 코사인 유사도
+    시맨틱-->>라우터: 22. 상위 10개 후보 + 점수
+    라우터->>크로스: 23. 재순위 요청 (Cross-encoder Top-3)
+    Note over 크로스: Query-Document 쌍 직접 분류
+    크로스-->>라우터: 24. 재순위된 Top-3 + 정밀 점수
+    라우터->>라우터: 25. 통합 점수 산출 (키워드 40% + 시맨틱 60%)
+    alt 고신뢰 매칭 (score >= 0.92)
+        라우터-->>오케: 26. FAQ 직접 응답 (Gemini 생략)
+        오케->>핸들러: 27. DirectFAQHandler 실행
+        핸들러->>응답조립: 28. FAQ 원문 + 병원 안내 + 추천 질문
+        응답조립->>세션: 29. 턴 히스토리 저장
+        세션->>Redis: 30. 세션 업데이트
+        응답조립-->>사용자: 31. 응답 반환 (gemini_skipped: true)
+        Note over 사용자,응답조립: 응답 시간: 200~500ms
+    end
+</pre></div>
+
+<h3 id="s2b">의도 분류 경로 (FAQ 매칭 부족 → 후보 풀 준비 → Gemini에 전달하여 최종 판단)</h3>
+<p>FAQ 빠른 매칭에서 신뢰도가 부족할 때, <strong>임베딩 데이터(FAQ 질문/답변/점수) + 사용자 질문을 Gemini에 넘겨서 FAQ ID를 최종 선택</strong>하는 경로입니다.</p>
+<div class="diagram"><pre class="mermaid">
+sequenceDiagram
+    participant 오케 as Orchestrator
+    participant 라우터 as RuleBasedRouter
+    participant 의도 as IntentService
+    participant 시맨틱 as SemanticMatcher
+    participant FAQ서비스 as FAQService
+    participant Gemini as Gemini (Vertex AI)
+    participant 검증 as FaqIdValidator
+    participant 폴백 as FallbackReranker
+    participant FAQ핸들러 as FAQHandler
+    participant 복수핸들러 as MultipleFAQHandler
+    participant 혼합핸들러 as MixedHandler
+    participant 직접핸들러 as DirectAnswerHandler
+    participant CS핸들러 as CustomerServiceHandler
+    participant 응답조립 as ResponseAssembly
+
+    라우터-->>오케: 1. 매칭 점수 부족 (score < 0.92)
+    Note over 오케,시맨틱: 2. Gemini에 넘길 FAQ 후보 풀 준비 (3단계 폴백)
+    오케->>의도: 3. classify_intent(질문, FAQ후보, 대화이력)
+    alt 1차: Rule-based 후보 존재
+        의도->>의도: 4a. rule_based_match의 top_candidates 사용
+        Note over 의도: 상위 3~5개 후보 (질문+답변+점수) 추출
+    else 2차: Rule-based 후보 없음 → Semantic Fallback
+        의도->>시맨틱: 4b. 시맨틱 매칭으로 Top-K 후보 추출
+        Note over 시맨틱: Bi-encoder 임베딩 유사도 기반
+        시맨틱-->>의도: 5b. FAQ 후보 목록 + 점수 반환
+    end
+    alt 3차: 후보 신뢰도 낮음 → Low-grounding Widen
+        의도->>시맨틱: 6. Top-K 확장 (더 많은 후보 추가 검색)
+        시맨틱-->>의도: 7. 확장된 후보 풀 병합
+        Note over 의도: 기존 후보 + 추가 후보 합쳐서 Gemini에 전달
+    end
+    Note over 의도,Gemini: 8. FAQ 후보 데이터를 Gemini에 전달하여 최종 판단
+    의도->>의도: 9. 후보 FAQ ID로 JSON Schema enum 생성
+    Note over 의도: Gemini는 이 enum 안에서만 FAQ ID 선택 가능
+    의도->>Gemini: 10. 의도 분류 요청 (질문 + FAQ 후보 데이터 + enum 제약)
+    Note over Gemini: flash-lite, temperature: 0.1, timeout: 15초
+    alt Gemini 응답 성공
+        Gemini-->>의도: 11. {intent, faq_ids, confidence} 반환
+        의도->>검증: 12. FAQ ID 검증 (가상 ID 제거)
+        검증-->>의도: 13. 검증된 intent_data 반환
+    else Gemini 타임아웃/오류
+        Note over Gemini,폴백: 폴백 전략 발동
+        의도->>폴백: 14. Bi-encoder 후보 재순위
+        폴백->>FAQ서비스: 15. 하이브리드 검색 (Dense+Sparse)
+        FAQ서비스-->>폴백: 16. 추가 후보 반환
+        폴백-->>의도: 17. 보정된 점수로 의도 결정
+    end
+    Note over 의도,응답조립: 18. 의도별 핸들러 라우팅
+    alt FAQ (단일 FAQ 고신뢰)
+        의도->>FAQ핸들러: 19a. FAQ 원문 응답
+        FAQ핸들러->>응답조립: 20a. 병원 안내 추가
+    else Multiple FAQ (2개+ FAQ 관련)
+        의도->>복수핸들러: 19b. 복수 FAQ 종합
+        복수핸들러->>Gemini: 20b. FAQ 통합 응답 생성 (flash-lite)
+        Gemini-->>복수핸들러: 21b. 종합 응답 반환
+        복수핸들러->>응답조립: 22b. 응답 전달
+    else Mixed (FAQ + 실시간 정보)
+        의도->>혼합핸들러: 19c. FAQ + 실시간 결합
+        혼합핸들러->>Gemini: 20c. 혼합 응답 생성 (flash-lite, Grounding)
+        Gemini-->>혼합핸들러: 21c. 결합 응답 반환
+        혼합핸들러->>응답조립: 22c. 응답 전달
+    else Direct Answer (FAQ 없음)
+        의도->>직접핸들러: 19d. Gemini 직접 응답
+        직접핸들러->>Gemini: 20d. 답변 생성 (flash, Grounding, temp: 0.0)
+        Gemini-->>직접핸들러: 21d. 생성 응답 반환
+        직접핸들러->>응답조립: 22d. 응답 전달
+    else Customer Service (신뢰도 < 30%)
+        의도->>CS핸들러: 19e. 고객센터 안내
+        CS핸들러->>응답조립: 20e. 에스컬레이션 메시지
+    end
+    응답조립->>응답조립: 23. 면책 문구 추가 + 추천 질문 생성
+    응답조립-->>오케: 24. 최종 응답 반환
+</pre></div>
+
+<h3 id="s2c">FAQ 후보 풀 준비 → Gemini 전달 상세</h3>
+<p>전처리(Bi-encoder/Cross-encoder)에서 고신뢰 매칭을 못 찾았을 때, <strong>임베딩 데이터 + 질문을 Gemini에 넘겨서 FAQ ID를 최종 선택</strong>합니다.</p>
+<table>
+<tr><th>단계</th><th>트리거 조건</th><th>동작</th><th>Gemini에 전달되는 데이터</th></tr>
+<tr><td><strong>1차: Rule-based 후보</strong></td><td>RuleBasedRouter에 <code>top_candidates</code> 존재</td><td>상위 3~5개 후보 그대로 사용</td><td>FAQ 질문+답변+combined_score+semantic_rate</td></tr>
+<tr><td><strong>2차: Semantic Fallback</strong></td><td>1차 후보가 비어있을 때</td><td>SemanticMatcher로 Top-K 재검색</td><td>Bi-encoder 유사도 상위 후보</td></tr>
+<tr><td><strong>3차: Low-grounding Widen</strong></td><td>후보 pool 전체 신뢰도가 낮을 때</td><td>Top-K를 확장하여 더 넓은 범위 검색</td><td>기존 후보 + 확장 후보 병합</td></tr>
+</table>
+<p><strong>Gemini 할루시네이션 방지 장치</strong>:</p>
+<ul>
+<li><strong>JSON Schema enum</strong>: 후보 FAQ ID만 enum으로 제한 → enum 밖 ID 출력 불가</li>
+<li><strong>FaqIdValidator</strong>: 가상 FAQ ID 감지 시 제거</li>
+<li><strong>Multiple FAQ Guard</strong>: LLM이 후보 밖 FAQ 추가 차단</li>
+</ul>
+
+<h3 id="s2d">Gemini 장애 시 폴백 흐름</h3>
+<p>Gemini LLM 호출이 실패했을 때, <strong>Gemini 없이 FAQ를 찾아오는</strong> 다단계 복구 과정입니다.</p>
+<div class="diagram"><pre class="mermaid">
+sequenceDiagram
+    participant 의도 as IntentService
+    participant Gemini as Gemini (Vertex AI)
+    participant CB as CircuitBreaker
+    participant 폴백 as FallbackReranker
+    participant FAQ서비스 as FAQService
+    participant 리매처 as SemanticRematcher
+    participant 규칙 as Rule-based Fallback
+    participant CS as CustomerServiceHandler
+
+    의도->>Gemini: 1. 의도 분류 요청 (FAQ 후보 + 질문)
+    alt 1차: 재시도 (최대 3회)
+        Gemini-->>의도: 타임아웃 (15초 초과)
+        의도->>Gemini: 2. 재시도 #1 (0.5초 대기)
+        Gemini-->>의도: 타임아웃
+        의도->>Gemini: 3. 재시도 #2 (1.0초 대기)
+        Gemini-->>의도: 타임아웃
+        의도->>CB: 4. 3회 연속 실패 보고
+        Note over CB: Circuit OPEN (30초간 Gemini 차단)
+    end
+    Note over 의도,FAQ서비스: 2차: FallbackReranker (Gemini 없이 FAQ 재탐색)
+    의도->>폴백: 5. 폴백 재순위 요청
+    폴백->>리매처: 6. 시맨틱 재매칭으로 점수 보정
+    리매처-->>폴백: 7. 보정된 점수 반환
+    alt 보정 점수 충분 (>= 0.60)
+        폴백-->>의도: 8a. FAQ 응답 반환 (낮은 신뢰도 표시)
+    else 보정 점수 부족 → 하이브리드 검색으로 FAQ 재탐색
+        폴백->>FAQ서비스: 8b. get_hybrid_candidates (Dense+Sparse 검색)
+        Note over FAQ서비스: Bi-encoder 임베딩 + 키워드 매칭 결합 검색
+        FAQ서비스-->>폴백: 9. 하이브리드 검색 결과 (Top-2)
+        폴백->>폴백: 10. 1위-2위 점수 격차(gap) 평가
+        alt 점수 격차 충분 (FAQ 확신)
+            폴백-->>의도: 11a. 하이브리드 검색으로 찾은 FAQ 반환
+        else 점수 격차 부족
+            Note over 폴백,규칙: 3차: 규칙 기반 폴백
+            폴백->>규칙: 11b. 최고 점수 FAQ 규칙 매칭
+            alt 규칙 매칭 성공
+                규칙-->>의도: 12a. FAQ 응답 (최저 신뢰도)
+            else 모든 폴백 실패
+                Note over 규칙,CS: 최종: 안전 에스컬레이션
+                규칙->>CS: 12b. 고객센터 안내
+                CS-->>의도: 13. 에스컬레이션 응답
+            end
+        end
+    end
+</pre></div>
+
+<h3 id="s2e">주요 연동 흐름</h3>
+<table>
+<tr><th>연동 대상</th><th>프로토콜</th><th>용도</th><th>타임아웃</th></tr>
+<tr><td>Gemini (Vertex AI)</td><td>gRPC (SDK)</td><td>의도 분류, 응답 생성, 오타 보정</td><td>15초</td></tr>
+<tr><td>Backoffice API</td><td>HTTP</td><td>FAQ 데이터 로드 (5분 캐시)</td><td>30초</td></tr>
+<tr><td>Redis</td><td>TCP</td><td>세션 관리, 임베딩 캐시, Rate Limit</td><td>-</td></tr>
+<tr><td>병원 정보 API</td><td>HTTP</td><td>병원 엔티티 조회 (30분 캐시)</td><td>30초</td></tr>
+</table>
+</section>
+
+<!-- 3 -->
+<section id="s3">
+<h2>3. 요청 처리 파이프라인</h2>
+<p>사용자 메시지가 수신되면 아래 단계를 순차적으로 거쳐 응답이 생성됩니다.</p>
+<div class="diagram"><pre class="mermaid">
+flowchart LR
+    INPUT["사용자 메시지\nPOST /api/chat"] --> ADMIT["Admission Control\n(동시 요청 제한)"]
+    ADMIT --> SAFETY["안전성 검사\n(PII/부적절)"]
+    SAFETY --> TYPO["오타 보정\n(Gemini)"]
+    TYPO --> ALIAS["도메인 별칭 확장\n(병원명 정규화)"]
+    ALIAS --> HISTORY["세션 히스토리\n로드 (최대 7턴)"]
+    HISTORY --> RULE["RuleBasedRouter"]
+    RULE --> SEM["SemanticMatcher\n(Bi-encoder)"]
+    SEM --> CROSS["CrossEncoder\n(Re-ranker)"]
+    CROSS --> THRESHOLD["임계값 평가"]
+    THRESHOLD -->|"고신뢰 FAQ 매칭\n(score >= 0.92)"| FAQ_H["FAQHandler\n(단일 FAQ)"]
+    THRESHOLD -->|"매칭 부족"| INTENT_SVC["IntentService\n(Gemini LLM 호출)"]
+    INTENT_SVC --> REMATCH["SemanticRematcher\n(보정)"]
+    REMATCH --> FALLBACK["FallbackReranker\n(재순위)"]
+    FALLBACK -->|FAQ| FAQ_H
+    FALLBACK -->|Multiple FAQ| MULTI_H["MultipleFAQHandler\n(복수 FAQ)"]
+    FALLBACK -->|Mixed| MIXED_H["MixedHandler\n(FAQ+실시간)"]
+    FALLBACK -->|Direct Answer| DIRECT_H["DirectAnswerHandler\n(직접 응답)"]
+    FALLBACK -->|Customer Service| CS_H["CustomerServiceHandler\n(상담사 연결)"]
+    FALLBACK -->|Inappropriate| SAFETY_H["SafetyRouter\n(부적절 차단)"]
+    FAQ_H --> BUILDER["ResponseBuilder\n(병원 안내 추가)"]
+    MULTI_H --> BUILDER
+    MIXED_H --> BUILDER
+    DIRECT_H --> BUILDER
+    CS_H --> BUILDER
+    SAFETY_H --> BUILDER
+    BUILDER --> TRANSFORMER["ResponseTransformer\n(LLM 다듬기)"]
+    TRANSFORMER --> DISCLAIMER["DisclaimerManager\n(면책 문구)"]
+    DISCLAIMER --> SUGGEST["RAGService\n(추천 질문)"]
+    SUGGEST --> SAVE["SessionService\n(히스토리 저장)"]
+    SAVE --> RETURN["API Response\n(JSON)"]
+</pre></div>
+
+<h3>단계별 핵심 동작</h3>
+<table>
+<tr><th>단계</th><th>핵심 동작</th><th>평균 소요 시간</th></tr>
+<tr><td><strong>1. 전처리</strong></td><td>PII 검출, 오타 보정(Gemini), 병원명 정규화, 세션 로드</td><td><span class="bg">200~500ms</span></td></tr>
+<tr><td><strong>2. FAQ 빠른 매칭</strong></td><td>Bi-encoder 유사도 → Cross-encoder 재순위 → 임계값 판단</td><td><span class="bg">100~300ms</span></td></tr>
+<tr><td><strong>3. 의도 분류</strong></td><td>Gemini LLM 호출로 6가지 의도 분류 (FAQ 빠른 매칭 실패 시)</td><td><span class="bo">1~3초</span></td></tr>
+<tr><td><strong>4. 핸들러 실행</strong></td><td>의도별 응답 생성 (필요시 Gemini 추가 호출)</td><td><span class="bo">1~3초</span></td></tr>
+<tr><td><strong>5. 응답 조립</strong></td><td>병원 안내 추가, 면책 문구, 추천 질문 생성</td><td><span class="bg">50~100ms</span></td></tr>
+<tr><td><strong>6. 응답 반환</strong></td><td>JSON 응답 전송</td><td><span class="bg">즉시</span></td></tr>
+</table>
+<div class="callout-green callout"><strong>FAQ 빠른 경로</strong>: 시맨틱 매칭 점수가 임계값(0.92) 이상이면 Gemini 호출 없이 즉시 FAQ 응답 → <strong>3~5초 절약</strong></div>
+</section>
+
+<!-- 4 -->
+<section id="s4">
+<h2>4. 핵심 컴포넌트</h2>
+
+<div class="card" id="s4a">
+<h3 style="margin-top:0">4.1 Orchestrator (중앙 조율자)</h3>
+<p><strong>파일</strong>: <code>src/agent/orchestrator.py</code></p>
+<p>전체 파이프라인의 진입점이자 조율자입니다. 모든 서비스를 의존성 주입받아 초기화하고, 메시지 처리의 전체 흐름을 제어합니다.</p>
+<pre class="codeblock">process_message(message, conversation_id)
+  → PreIntentPipeline
+  → RuleBasedRouter
+  → IntentService (필요시)
+  → IntentHandler
+  → ResponseAssembly</pre>
+</div>
+
+<div class="card" id="s4b">
+<h3 style="margin-top:0">4.2 SemanticMatcher (Bi-encoder 시맨틱 매칭)</h3>
+<p><strong>파일</strong>: <code>src/matching/semantic_matcher.py</code></p>
+<table>
+<tr><th>항목</th><th>상세</th></tr>
+<tr><td><strong>모델</strong></td><td><code>jhgan/ko-sroberta-multitask</code> (한국어 특화 Sentence Transformer)</td></tr>
+<tr><td><strong>방식</strong></td><td>Bi-encoder: 질문/FAQ 각각 독립 임베딩 → 코사인 유사도 비교</td></tr>
+<tr><td><strong>Top-K</strong></td><td>상위 10개 후보 반환 (<code>SEMANTIC_ANSWER_TOP_K</code>)</td></tr>
+<tr><td><strong>캐싱</strong></td><td>인메모리 + Redis 분산 캐시 (멀티 워커 간 공유)</td></tr>
+<tr><td><strong>동기화</strong></td><td>매일 1회 FAQ 임베딩 자동 갱신 (Background Task)</td></tr>
+<tr><td><strong>모델 로딩</strong></td><td>모듈 레벨 싱글톤 (Gunicorn <code>--preload</code>로 COW 최적화)</td></tr>
+</table>
+<p><strong>동작 흐름</strong>:</p>
+<ol>
+<li>사용자 질문을 <strong>KiwiPy 형태소 분석기</strong>로 정규화 (명사, 동사, 보조동사 추출)</li>
+<li>정규화된 질문을 Sentence Transformer로 임베딩 벡터 생성</li>
+<li>사전 계산된 FAQ 임베딩과 코사인 유사도 계산 (Top-10 추출)</li>
+<li><strong>질문 유사도 0.5~0.9 구간</strong>: 추가로 답변(Answer) 유사도도 계산하여 보정</li>
+<li>짧은 질문 (&lt; 20자)은 임계값을 낮춰 매칭 기회 확대</li>
+</ol>
+<p><strong>Calibration (점수 보정)</strong>: 원시 코사인 유사도를 실제 신뢰도 스케일로 변환하여 임계값 판단의 정확도를 높임</p>
+</div>
+
+<div class="card" id="s4c">
+<h3 style="margin-top:0">4.3 형태소 분석 (KiwiPy)</h3>
+<p><strong>연동 위치</strong>: <code>src/matching/semantic_matcher.py</code></p>
+<table>
+<tr><th>항목</th><th>상세</th></tr>
+<tr><td><strong>엔진</strong></td><td>KiwiPy (한국어 형태소 분석기)</td></tr>
+<tr><td><strong>용도</strong></td><td>시맨틱 매칭 전 질문 정규화</td></tr>
+<tr><td><strong>추출 대상</strong></td><td>명사(NNG/NNP), 동사(VV), 보조동사(VX)</td></tr>
+<tr><td><strong>효과</strong></td><td>조사/어미 제거로 핵심 의미 단어만 비교 → 매칭 정확도 향상</td></tr>
+</table>
+<p><strong>예시</strong>:</p>
+<ul>
+<li>입력: <code>"진료 예약은 어떻게 하나요?"</code> → 정규화: <code>"진료 예약 하다"</code></li>
+<li>입력: <code>"분당대병원 주소가 어디에요?"</code> → 정규화: <code>"분당대병원 주소 어디"</code></li>
+</ul>
+</div>
+
+<div class="card" id="s4d">
+<h3 style="margin-top:0">4.4 CrossEncoder (Re-ranker)</h3>
+<p><strong>파일</strong>: <code>src/matching/cross_encoder_reranker.py</code></p>
+<table>
+<tr><th>항목</th><th>상세</th></tr>
+<tr><td><strong>모델</strong></td><td><code>BAAI/bge-reranker-v2-m3</code> (다국어 지원)</td></tr>
+<tr><td><strong>방식</strong></td><td>Query-Document 쌍을 하나의 시퀀스로 결합 → 직접 관련성 점수 산출</td></tr>
+<tr><td><strong>입력</strong></td><td>Bi-encoder 상위 후보</td></tr>
+<tr><td><strong>출력</strong></td><td>재순위된 Top-3 후보</td></tr>
+<tr><td><strong>고신뢰 임계값</strong></td><td>0.70</td></tr>
+<tr><td><strong>최소 신뢰 임계값</strong></td><td>0.50</td></tr>
+</table>
+<p><strong>Bi-encoder vs Cross-encoder 차이</strong>:</p>
+<table>
+<tr><th>구분</th><th>Bi-encoder</th><th>Cross-encoder</th></tr>
+<tr><td><strong>속도</strong></td><td>빠름 (독립 임베딩, 사전 계산 가능)</td><td>느림 (쌍별 추론 필요)</td></tr>
+<tr><td><strong>정확도</strong></td><td>상대적 낮음</td><td>높음 (질문-문서 상호작용 직접 모델링)</td></tr>
+<tr><td><strong>역할</strong></td><td>1차 후보 추출 (Top-10)</td><td>2차 정밀 재순위 (Top-3)</td></tr>
+<tr><td><strong>사용 시점</strong></td><td>모든 요청</td><td>Bi-encoder 후보가 있을 때</td></tr>
+</table>
+<p><strong>문서 전략</strong>: 불용어(정보, 기능, 변경, 확인, 방법 등) 필터링으로 핵심 내용만 Cross-encoder에 전달</p>
+<p><strong>Shadow Mode</strong>: 개발 환경에서 A/B 테스트용으로 비동기 실행 → 운영 영향 없이 성능 비교 가능</p>
+</div>
+
+<div class="card" id="s4e">
+<h3 style="margin-top:0">4.5 오타 보정 (Typo Correction)</h3>
+<p><strong>파일</strong>: <code>src/preprocessing/typo_corrector.py</code></p>
+<table>
+<tr><th>항목</th><th>상세</th></tr>
+<tr><td><strong>엔진</strong></td><td>Gemini 2.5 Flash Lite (LLM 기반)</td></tr>
+<tr><td><strong>동작</strong></td><td>사용자 입력의 오탈자를 자연어 이해 기반으로 보정</td></tr>
+<tr><td><strong>병원명 보호</strong></td><td>병원 엔티티는 보정 대상에서 제외 (오보정 방지)</td></tr>
+<tr><td><strong>도메인 오타 사전</strong></td><td>자주 발생하는 의료/병원 도메인 오탈자 사전 보유</td></tr>
+<tr><td><strong>캐싱</strong></td><td>동일 오타 패턴 결과 캐싱 (반복 호출 방지)</td></tr>
+</table>
+<p><strong>예시</strong>:</p>
+<ul>
+<li><code>"진료 예얌"</code> → <code>"진료 예약"</code></li>
+<li><code>"처방전 발급 방벙"</code> → <code>"처방전 발급 방법"</code></li>
+</ul>
+<p><strong>스킵 조건</strong>: FAQ 매칭 신뢰도가 이미 높으면 오타 보정을 생략하여 불필요한 Gemini 호출 방지</p>
+</div>
+
+<div class="card" id="s4f">
+<h3 style="margin-top:0">4.6 도메인 별칭 확장 (Domain Alias)</h3>
+<p><strong>파일</strong>: <code>src/preprocessing/domain_alias_expander.py</code></p>
+<p>병원 약칭을 정식 명칭으로 확장하여 매칭 정확도를 높입니다.</p>
+<table>
+<tr><th>약칭</th><th>확장 결과</th></tr>
+<tr><td><code>"분당대"</code></td><td><code>"분당서울대학교병원"</code></td></tr>
+<tr><td><code>"대학교병원"</code></td><td><code>"서울대학교병원"</code></td></tr>
+</table>
+</div>
+
+<div class="card" id="s4g">
+<h3 style="margin-top:0">4.7 IntentService (의도 분류)</h3>
+<p><strong>파일</strong>: <code>src/services/intent_service.py</code></p>
+<p>Gemini LLM을 호출하여 사용자 질문의 의도를 분류합니다. FAQ 빠른 매칭이 실패했을 때만 호출됩니다.</p>
+<p><strong>분류 과정</strong>:</p>
+<ol>
+<li>Bi-encoder 상위 후보를 프롬프트에 포함하여 Gemini에 전달</li>
+<li>JSON 스키마 기반 구조화된 응답으로 의도 + FAQ ID + 신뢰도 반환</li>
+<li><strong>혼동 쌍(Confusion Pair) 감지</strong>: 상위 FAQ들이 의미적으로 유사하면 경고 → 더 정밀한 판단 유도</li>
+<li><strong>짧은 질문 특별 처리</strong>: 20자 미만 질문은 별도 임계값 적용</li>
+<li><strong>모호한 키워드 감지</strong>: 다의어 탐지 시 Gemini 강제 호출</li>
+</ol>
+</div>
+
+<div class="card" id="s4h">
+<h3 style="margin-top:0">4.8 Gemini 폴백 전략 (Fallback &amp; Resilience)</h3>
+<p>전처리(Bi-encoder/Cross-encoder)에서 고신뢰 FAQ를 못 찾았을 때, <strong>임베딩 데이터 + 질문을 Gemini에 넘겨서 FAQ를 찾아오는 경로</strong>와, Gemini마저 실패했을 때의 복구 전략입니다.</p>
+
+<p><strong>정상 경로 (Gemini에 FAQ 후보 전달)</strong>:</p>
+<table>
+<tr><th>단계</th><th>트리거 조건</th><th>동작</th><th>Gemini에 전달되는 데이터</th></tr>
+<tr><td><strong>1차: Rule-based 후보</strong></td><td>RuleBasedRouter에 <code>top_candidates</code> 존재</td><td>상위 3~5개 후보 그대로 사용</td><td>FAQ 질문+답변+combined_score+semantic_rate</td></tr>
+<tr><td><strong>2차: Semantic Fallback</strong></td><td>1차 후보가 비어있을 때</td><td>SemanticMatcher로 Top-K 재검색</td><td>Bi-encoder 유사도 상위 후보</td></tr>
+<tr><td><strong>3차: Low-grounding Widen</strong></td><td>후보 pool 전체 신뢰도가 낮을 때</td><td>Top-K를 확장하여 더 넓은 범위 검색</td><td>기존 후보 + 확장 후보 병합</td></tr>
+</table>
+<p>→ Gemini는 이 후보들의 FAQ ID를 <strong>JSON Schema enum으로 제약</strong>받아 그 중에서만 최종 선택</p>
+
+<p><strong>Gemini 장애 시 폴백</strong>:</p>
+<table>
+<tr><th>단계</th><th>트리거 조건</th><th>동작</th><th>결과</th></tr>
+<tr><td><strong>1차: 재시도</strong></td><td>Gemini 타임아웃(15초) 또는 일시 오류</td><td>지수 백오프로 최대 3회 재시도</td><td>성공 시 정상 응답</td></tr>
+<tr><td><strong>Circuit Breaker</strong></td><td>3회 연속 실패</td><td>30초간 Gemini 호출 차단</td><td>즉시 2차로 이동</td></tr>
+<tr><td><strong>2차: FallbackReranker</strong></td><td>Gemini 응답 없거나 신뢰도 부족</td><td>SemanticRematcher 재매칭 + 하이브리드 검색(Dense+Sparse)</td><td>보정된 FAQ 응답</td></tr>
+<tr><td><strong>3차: Rule-based</strong></td><td>FallbackReranker 점수도 부족</td><td>규칙 기반으로 최고 점수 FAQ 반환</td><td>FAQ 응답 (낮은 신뢰도)</td></tr>
+<tr><td><strong>최종 폴백</strong></td><td>모든 단계 실패</td><td>고객센터 안내 메시지 반환</td><td>안전한 에스컬레이션</td></tr>
+</table>
+
+<p><strong>Gemini 모델별 용도</strong> (작업별 최적 모델 분리):</p>
+<table>
+<tr><th>작업</th><th>모델</th><th>Temperature</th><th>이유</th></tr>
+<tr><td>오타 보정</td><td><code>gemini-2.5-flash-lite</code></td><td>0.1</td><td>빠른 응답, 단순 교정</td></tr>
+<tr><td>의도 분류</td><td><code>gemini-2.5-flash-lite</code></td><td>0.1</td><td>빠른 판단, 구조화 출력</td></tr>
+<tr><td>직접 응답</td><td><code>gemini-2.5-flash</code></td><td>0.0</td><td>정확한 사실 정보 (Grounding)</td></tr>
+<tr><td>복수 FAQ 종합</td><td><code>gemini-2.5-flash-lite</code></td><td>0.1</td><td>여러 FAQ 통합 정리</td></tr>
+<tr><td>절 합성</td><td><code>gemini-2.5-flash</code></td><td>0.2</td><td>복합 질문 분리 후 종합</td></tr>
+</table>
+<div class="callout"><strong>비용/속도 최적화</strong>: 단순 작업은 <code>flash-lite</code> (빠르고 저비용), 정확도가 중요한 작업은 <code>flash</code> (고품질) 사용</div>
+</div>
+
+<div class="card" id="s4i">
+<h3 style="margin-top:0">4.9 SessionService (세션 관리)</h3>
+<p><strong>파일</strong>: <code>src/services/session_service.py</code></p>
+<table>
+<tr><th>항목</th><th>상세</th></tr>
+<tr><td><strong>백엔드</strong></td><td>Redis (운영) / 인메모리 (개발)</td></tr>
+<tr><td><strong>세션 TTL</strong></td><td>1시간 (3,600초)</td></tr>
+<tr><td><strong>히스토리</strong></td><td>최대 10턴 저장, 7턴 로드</td></tr>
+<tr><td><strong>상태 추적</strong></td><td>마지막 의도, FAQ ID, 병원명, 대기 질문</td></tr>
+</table>
+</div>
+</section>
+
+<!-- 5 -->
+<section id="s5">
+<h2>5. 의도(Intent) 분류 체계</h2>
+<div class="diagram"><pre class="mermaid">
+flowchart LR
+    MSG["사용자 질문"] --> CLASSIFY["IntentService\n(Gemini LLM)"]
+    CLASSIFY --> I_FAQ["FAQ\n(단일 FAQ 90%+ 매칭)"]
+    CLASSIFY --> I_MULTI["Multiple FAQ\n(2개+ FAQ 관련)"]
+    CLASSIFY --> I_MIXED["Mixed\n(FAQ + 실시간 키워드)"]
+    CLASSIFY --> I_DIRECT["Direct Answer\n(FAQ 없음, 사실 정보)"]
+    CLASSIFY --> I_CS["Customer Service\n(낮은 신뢰도 < 30%)"]
+    CLASSIFY --> I_INAPP["Inappropriate\n(PII/부적절 콘텐츠)"]
+    I_FAQ --> H_FAQ["FAQHandler\n단일 FAQ 응답"]
+    I_MULTI --> H_MULTI["MultipleFAQHandler\nGemini로 종합 응답"]
+    I_MIXED --> H_MIXED["MixedHandler\nFAQ + 실시간 정보 결합"]
+    I_DIRECT --> H_DIRECT["DirectAnswerHandler\nGemini 직접 응답 (Grounding)"]
+    I_CS --> H_CS["CustomerServiceHandler\n상담사 연결 안내"]
+    I_INAPP --> H_SAFETY["InappropriateHandler\n안전 응답"]
+
+    style CLASSIFY fill:#2b5ea7,stroke:#1e4a8a,color:#fff
+    style I_FAQ fill:#2e7d32,stroke:#1b5e20,color:#fff
+    style I_MULTI fill:#1565c0,stroke:#0d47a1,color:#fff
+    style I_MIXED fill:#6a1b9a,stroke:#4a148c,color:#fff
+    style I_DIRECT fill:#e65100,stroke:#bf360c,color:#fff
+    style I_CS fill:#c62828,stroke:#b71c1c,color:#fff
+    style I_INAPP fill:#ad1457,stroke:#880e4f,color:#fff
+    style H_FAQ fill:#43a047,stroke:#2e7d32,color:#fff
+    style H_MULTI fill:#1e88e5,stroke:#1565c0,color:#fff
+    style H_MIXED fill:#8e24aa,stroke:#6a1b9a,color:#fff
+    style H_DIRECT fill:#ef6c00,stroke:#e65100,color:#fff
+    style H_CS fill:#e53935,stroke:#c62828,color:#fff
+    style H_SAFETY fill:#d81b60,stroke:#ad1457,color:#fff
+</pre></div>
+
+<h3>의도별 처리 방식</h3>
+<table>
+<tr><th>의도</th><th>트리거 조건</th><th>Gemini 호출</th><th>응답 방식</th></tr>
+<tr><td><strong>FAQ</strong></td><td>단일 FAQ 고신뢰 매칭</td><td><span class="bg">생략 가능</span></td><td>FAQ 원문 + 병원 안내</td></tr>
+<tr><td><strong>Multiple FAQ</strong></td><td>2개+ FAQ 매칭 + 접속사/조건문</td><td><span class="bb">O (종합)</span></td><td>여러 FAQ 통합 응답</td></tr>
+<tr><td><strong>Mixed</strong></td><td>FAQ 키워드 + 실시간 키워드 공존</td><td><span class="bp">O (혼합)</span></td><td>FAQ + 실시간 정보 결합</td></tr>
+<tr><td><strong>Direct Answer</strong></td><td>FAQ 매칭 실패 + 사실 정보 질문</td><td><span class="bo">O (생성)</span></td><td>Gemini 직접 답변 (Grounding)</td></tr>
+<tr><td><strong>Customer Service</strong></td><td>신뢰도 &lt; 30% 또는 불명확</td><td><span class="bg">X</span></td><td>고객센터 안내 메시지</td></tr>
+<tr><td><strong>Inappropriate</strong></td><td>PII 요청 / 부적절 콘텐츠</td><td><span class="br">X</span></td><td>안전 거부 응답</td></tr>
+</table>
+</section>
+
+<!-- 6 -->
+<section id="s6">
+<h2>6. FAQ 매칭 파이프라인</h2>
+<div class="diagram"><pre class="mermaid">
+flowchart LR
+    QUERY["정규화된 질문"] --> EXACT_M["1단계: ExactMatcher\n키워드 기반 빠른 매칭"]
+    EXACT_M --> BI_ENC["2단계: Bi-Encoder\n(ko-sroberta-multitask)\n코사인 유사도 Top-10"]
+    BI_ENC --> CROSS_ENC["3단계: Cross-Encoder\n(bge-reranker-v2-m3)\nQuery-Doc 쌍 정밀 점수"]
+    CROSS_ENC --> EVAL["통합 점수 산출\n키워드 40% + 시맨틱 60%"]
+    EVAL -->|"score >= 0.92"| ACCEPT["FAQ 응답 확정\n(Gemini 생략)"]
+    EVAL -->|"0.60 ~ 0.92"| INTENT_CLS["IntentService로\n의도 분류 진행"]
+    EVAL -->|"score < 0.60"| INTENT_CLS2["IntentService로\n의도 분류 진행"]
+
+    style ACCEPT fill:#2e7d32,stroke:#1b5e20,color:#fff
+    style INTENT_CLS fill:#e65100,stroke:#bf360c,color:#fff
+    style INTENT_CLS2 fill:#c62828,stroke:#b71c1c,color:#fff
+    style EVAL fill:#1565c0,stroke:#0d47a1,color:#fff
+</pre></div>
+
+<h3>매칭 임계값 요약</h3>
+<table>
+<tr><th>구간</th><th>점수 범위</th><th>동작</th></tr>
+<tr><td><span class="bg">고신뢰 (Early Accept)</span></td><td>&gt;= 0.92</td><td>Gemini 호출 없이 FAQ 즉시 반환</td></tr>
+<tr><td><span class="bo">중간 신뢰</span></td><td>0.60 ~ 0.92</td><td>IntentService에서 Gemini로 최종 판단</td></tr>
+<tr><td><span class="br">저신뢰</span></td><td>&lt; 0.60</td><td>IntentService → Direct Answer 또는 Customer Service</td></tr>
+</table>
+<div class="callout">카테고리/서브카테고리별 임계값 오버라이드 가능 (예: MY_DATA 카테고리는 0.85)</div>
+</section>
+
+<!-- 7 -->
+<section id="s7">
+<h2>7. 멀티턴 대화 관리</h2>
+
+<h3>세션 상태 모델</h3>
+<div class="diagram"><pre class="mermaid">
+flowchart LR
+    subgraph State["세션 상태 (ConversationState)"]
+        A["last_intent\n(이전 의도)"]
+        B["last_faq_id\n(마지막 FAQ)"]
+        C["active_faq_ids\n(관련 FAQ 집합)"]
+        D["resolved_entities\n(병원명 등)"]
+        E["pending_question\n(대기 질문)"]
+    end
+    subgraph Storage["저장소"]
+        R["Redis\n(운영 환경) TTL: 1시간"]
+        M["In-Memory\n(개발 환경)"]
+    end
+    subgraph Features["멀티턴 기능"]
+        F1["후속 질문 바이어스\n관련 FAQ 우선 매칭"]
+        F2["병원 컨텍스트 유지\n동일 병원 후속 질문"]
+        F3["명확화 처리\n모호한 질문 → 확인 요청"]
+        F4["세션 리셋\n특정 키워드로 초기화"]
+    end
+    State --> R
+    State --> M
+    State --> F1
+    State --> F2
+    State --> F3
+    State --> F4
+</pre></div>
+
+<h3>멀티턴 동작 방식</h3>
+<ol>
+<li><strong>후속 질문 바이어스</strong>: 이전 의도가 FAQ이고 <code>last_faq_id</code>가 있으면, 관련 FAQ에 가중치를 부여</li>
+<li><strong>병원 컨텍스트 유지</strong>: <code>resolved_entities.hospital_name</code>을 후속 질문에서 재사용</li>
+<li><strong>명확화 처리</strong>: 복수 FAQ 후보 + 짧은 질문 → 사용자에게 확인 요청</li>
+<li><strong>세션 리셋</strong>: 설정된 리셋 키워드 입력 시 대화 초기화</li>
+</ol>
+</section>
+
+<!-- 8 -->
+<section id="s8">
+<h2>8. 배포 아키텍처</h2>
+<ul>
+<li><strong>컨테이너</strong>: Docker (Python 3.12 slim + PyTorch CPU + Intel IPEX)</li>
+<li><strong>프로세스</strong>: Gunicorn + UvicornWorker (dev: 3 워커 / prod: 8 워커)</li>
+<li><strong>CI/CD</strong>: Jenkins → SSH 배포</li>
+<li><strong>모니터링</strong>: Prometheus (FastAPI 자동 계측, CPU/메모리 메트릭)</li>
+<li><strong>Warm-up</strong>: 리더 워커가 모델 로드 + 임베딩 사전 계산 → 나머지 워커는 Redis에서 수신</li>
+</ul>
+</section>
+
+<!-- 9 -->
+<section id="s9">
+<h2>9. API 엔드포인트</h2>
+<table>
+<tr><th>엔드포인트</th><th>메서드</th><th>용도</th></tr>
+<tr><td><code>/api/chat</code></td><td>POST</td><td>채팅 메시지 처리 (Rate Limit, 30초 타임아웃)</td></tr>
+<tr><td><code>/api/faq</code></td><td>GET</td><td>FAQ 목록 조회</td></tr>
+<tr><td><code>/health</code></td><td>GET</td><td>헬스 체크</td></tr>
+<tr><td><code>/metrics</code></td><td>GET</td><td>Prometheus 메트릭</td></tr>
+</table>
+</section>
+
+<!-- 10 -->
+<section id="s10">
+<h2>10. 성능 특성</h2>
+
+<h3>응답 시간 (요청 유형별)</h3>
+<table>
+<tr><th>유형</th><th>평균 응답 시간</th><th>Gemini 호출</th></tr>
+<tr><td>FAQ 직접 응답 (Gemini 생략)</td><td><span class="bg">200~500ms</span></td><td>X</td></tr>
+<tr><td>FAQ + Gemini 보완</td><td><span class="bo">3~5초</span></td><td>O (1회)</td></tr>
+<tr><td>Direct Answer (LLM 생성)</td><td><span class="bo">2~4초</span></td><td>O (1회)</td></tr>
+<tr><td>Mixed (FAQ + 실시간)</td><td><span class="br">4~6초</span></td><td>O (1~2회)</td></tr>
+</table>
+
+<h3>안정성</h3>
+<table>
+<tr><th>항목</th><th>설정</th></tr>
+<tr><td><strong>동시 요청 제한</strong></td><td>글로벌 6개 (Redis 기반 멀티워커 안전)</td></tr>
+<tr><td><strong>요청 타임아웃</strong></td><td>30초 (초과 시 안전 메시지 반환)</td></tr>
+<tr><td><strong>Gemini Circuit Breaker</strong></td><td>3회 실패 시 30초간 차단</td></tr>
+<tr><td><strong>Gemini 재시도</strong></td><td>3회, 지수 백오프 (0.5s → 1.0s)</td></tr>
+<tr><td><strong>FAQ 캐시</strong></td><td>5분 TTL (Backoffice API 부하 최소화)</td></tr>
+</table>
+</section>
+
+
+</main>
+
+<!-- Fullscreen Modal -->
+<div class="modal-overlay" id="diagramModal">
+  <div class="modal-content" id="diagramModalContent">
+    <button class="modal-close" id="modalClose">ESC / Close</button>
+    <div id="diagramModalBody"></div>
+    <div class="modal-hint">Scroll to pan / ESC to close</div>
+  </div>
+</div>
+
+<script>
+mermaid.initialize({
+  startOnLoad: true,
+  theme: 'base',
+  securityLevel: 'loose',
+  themeVariables: {
+    primaryColor: '#e8f0fe', primaryTextColor: '#1a3a6b', primaryBorderColor: '#a8c4e6',
+    lineColor: '#5a6b7d', secondaryColor: '#f0f4f8', tertiaryColor: '#fff',
+    noteBkgColor: '#fef9e7', noteTextColor: '#6b5900', noteBorderColor: '#e6c84a',
+    actorBkg: '#3b6cb5', actorTextColor: '#ffffff', actorBorder: '#2c5a9e',
+    actorLineColor: '#5a6b7d', signalColor: '#2d3748', signalTextColor: '#1a202c',
+    labelBoxBkgColor: '#f7f9fc', labelBoxBorderColor: '#d4dce6', labelTextColor: '#2d3748',
+    loopTextColor: '#3d4f63', activationBorderColor: '#3b6cb5', activationBkgColor: '#e8f0fe',
+    sequenceNumberColor: '#fff',
+    nodeBorder: '#2b5ea7', mainBkg: '#2b5ea7', nodeTextColor: '#ffffff', clusterBkg: '#e8eef6', clusterBorder: '#7a9ec4',
+    edgeLabelBackground: '#fff', fontSize: '15px'
+  },
+  sequence: { mirrorActors: false, actorMargin: 16, messageFontSize: 13, noteFontSize: 12, actorFontSize: 12, wrap: true, width: 150, useMaxWidth: true },
+  flowchart: { curve: 'basis', nodeSpacing: 30, rankSpacing: 50, useMaxWidth: true, htmlLabels: true, wrappingWidth: 200 }
+});
+// Active nav
+const secs = document.querySelectorAll('section[id]');
+const links = document.querySelectorAll('nav a');
+window.addEventListener('scroll', () => {
+  let cur = '';
+  secs.forEach(s => { if (scrollY >= s.offsetTop - 100) cur = s.id; });
+  links.forEach(a => { a.classList.toggle('active', a.getAttribute('href') === '#' + cur); });
+});
+
+// Diagram click-to-expand modal
+const modal = document.getElementById('diagramModal');
+const modalBody = document.getElementById('diagramModalBody');
+const modalClose = document.getElementById('modalClose');
+
+document.querySelectorAll('.diagram').forEach(d => {
+  d.addEventListener('click', () => {
+    const svg = d.querySelector('svg');
+    if (!svg) return;
+    const clone = svg.cloneNode(true);
+    clone.style.width = 'auto';
+    clone.style.height = 'auto';
+    clone.style.maxWidth = 'none';
+    clone.style.maxHeight = 'none';
+    clone.removeAttribute('width');
+    clone.removeAttribute('height');
+    // scale up for readability
+    const vb = clone.getAttribute('viewBox');
+    if (vb) {
+      const parts = vb.split(/\s+/);
+      if (parts.length === 4) {
+        const w = parseFloat(parts[2]);
+        const h = parseFloat(parts[3]);
+        clone.style.width = Math.max(w * 1.3, 1000) + 'px';
+        clone.style.height = (h * 1.3) + 'px';
+      }
+    }
+    modalBody.innerHTML = '';
+    modalBody.appendChild(clone);
+    modal.classList.add('active');
+  });
+});
+
+modalClose.addEventListener('click', (e) => { e.stopPropagation(); modal.classList.remove('active'); });
+modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.remove('active'); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') modal.classList.remove('active'); });
+</script>
+</body>
+</html>
