@@ -110,6 +110,8 @@
   <a href="#s4g" class="sub">IntentService</a>
   <a href="#s4h" class="sub">Gemini 폴백 전략</a>
   <a href="#s4i" class="sub">SessionService</a>
+  <a href="#s4j" class="sub">ConversationContext</a>
+  <a href="#s4k" class="sub">PreIntentPipeline</a>
   <a href="#s5">5. 의도 분류 체계</a>
   <a href="#s6">6. FAQ 매칭 파이프라인</a>
   <a href="#s7">7. 멀티턴 대화 관리</a>
@@ -129,7 +131,7 @@
 <table>
 <tr><th>기능</th><th>설명</th></tr>
 <tr><td>FAQ 시맨틱 매칭</td><td>Sentence Transformer 기반 질문-답변 유사도 검색</td></tr>
-<tr><td>LLM 의도 분류</td><td>Gemini를 활용한 6가지 의도(Intent) 자동 분류</td></tr>
+<tr><td>LLM 의도 분류</td><td>Gemini를 활용한 13가지 의도(Intent) 자동 분류</td></tr>
 <tr><td>멀티턴 대화</td><td>Redis 기반 세션 관리로 문맥 유지</td></tr>
 <tr><td>실시간 정보</td><td>병원 연락처, 주소 등 실시간 정보 응답</td></tr>
 </table>
@@ -145,7 +147,7 @@
 <tr><td><strong>세션 관리</strong></td><td>Redis</td><td>분산 세션 및 임베딩 캐시</td></tr>
 <tr><td><strong>형태소 분석</strong></td><td>KiwiPy</td><td>한국어 형태소 분석</td></tr>
 <tr><td><strong>모니터링</strong></td><td>Prometheus</td><td>요청 메트릭, CPU/메모리</td></tr>
-<tr><td><strong>배포</strong></td><td>Docker + GitHub Actions</td><td>컨테이너화 및 CI/CD</td></tr>
+<tr><td><strong>배포</strong></td><td>Docker + Jenkins</td><td>컨테이너화 및 CI/CD</td></tr>
 </table>
 </section>
 
@@ -196,13 +198,13 @@ sequenceDiagram
     오케->>라우터: 18. match(정규화된 질문)
     라우터->>백오피스: 19. FAQ 목록 조회 (5분 캐시)
     백오피스-->>라우터: 20. FAQ 데이터 반환
-    라우터->>시맨틱: 21. 시맨틱 매칭 (Bi-encoder Top-10)
+    라우터->>시맨틱: 21. 시맨틱 매칭 (Bi-encoder Top-20)
     Note over 시맨틱: KiwiPy 형태소 분석 → 임베딩 → 코사인 유사도
-    시맨틱-->>라우터: 22. 상위 10개 후보 + 점수
+    시맨틱-->>라우터: 22. 상위 20개 후보 + 점수
     라우터->>크로스: 23. 재순위 요청 (Cross-encoder Top-3)
     Note over 크로스: Query-Document 쌍 직접 분류
     크로스-->>라우터: 24. 재순위된 Top-3 + 정밀 점수
-    라우터->>라우터: 25. 통합 점수 산출 (키워드 40% + 시맨틱 60%)
+    라우터->>라우터: 25. 통합 점수 산출 (시맨틱 유사도 + 키워드 보너스)
     alt 고신뢰 매칭 (score >= 0.92)
         라우터-->>오케: 26. FAQ 직접 응답 (Gemini 생략)
         오케->>핸들러: 27. DirectFAQHandler 실행
@@ -388,16 +390,24 @@ flowchart LR
     REMATCH --> FALLBACK["FallbackReranker\n(재순위)"]
     FALLBACK -->|FAQ| FAQ_H
     FALLBACK -->|Multiple FAQ| MULTI_H["MultipleFAQHandler\n(복수 FAQ)"]
+    FALLBACK -->|Partial FAQ| PARTIAL_H["PartialFAQHandler\n(부분 FAQ)"]
     FALLBACK -->|Mixed| MIXED_H["MixedHandler\n(FAQ+실시간)"]
     FALLBACK -->|Direct Answer| DIRECT_H["DirectAnswerHandler\n(직접 응답)"]
     FALLBACK -->|Customer Service| CS_H["CustomerServiceHandler\n(상담사 연결)"]
     FALLBACK -->|Inappropriate| SAFETY_H["SafetyRouter\n(부적절 차단)"]
+    FALLBACK -->|Data Privacy| PRIVACY_H["DataPrivacyInquiryHandler\n(개인정보)"]
+    FALLBACK -->|Service Intro| INTRO_H["ServiceIntroHandler\n(서비스 소개)"]
+    FALLBACK -->|Timeout| TIMEOUT_H["SystemTimeoutHandler\n(타임아웃)"]
     FAQ_H --> BUILDER["ResponseBuilder\n(병원 안내 추가)"]
     MULTI_H --> BUILDER
+    PARTIAL_H --> BUILDER
     MIXED_H --> BUILDER
     DIRECT_H --> BUILDER
     CS_H --> BUILDER
     SAFETY_H --> BUILDER
+    PRIVACY_H --> BUILDER
+    INTRO_H --> BUILDER
+    TIMEOUT_H --> BUILDER
     BUILDER --> TRANSFORMER["ResponseTransformer\n(LLM 다듬기)"]
     TRANSFORMER --> DISCLAIMER["DisclaimerManager\n(면책 문구)"]
     DISCLAIMER --> SUGGEST["RAGService\n(추천 질문)"]
@@ -410,7 +420,7 @@ flowchart LR
 <tr><th>단계</th><th>핵심 동작</th><th>평균 소요 시간</th></tr>
 <tr><td><strong>1. 전처리</strong></td><td>PII 검출, 오타 보정(Gemini), 병원명 정규화, 세션 로드</td><td><span class="bg">200~500ms</span></td></tr>
 <tr><td><strong>2. FAQ 빠른 매칭</strong></td><td>Bi-encoder 유사도 → Cross-encoder 재순위 → 임계값 판단</td><td><span class="bg">100~300ms</span></td></tr>
-<tr><td><strong>3. 의도 분류</strong></td><td>Gemini LLM 호출로 6가지 의도 분류 (FAQ 빠른 매칭 실패 시)</td><td><span class="bo">1~3초</span></td></tr>
+<tr><td><strong>3. 의도 분류</strong></td><td>Gemini LLM 호출로 13가지 의도 분류 (FAQ 빠른 매칭 실패 시)</td><td><span class="bo">1~3초</span></td></tr>
 <tr><td><strong>4. 핸들러 실행</strong></td><td>의도별 응답 생성 (필요시 Gemini 추가 호출)</td><td><span class="bo">1~3초</span></td></tr>
 <tr><td><strong>5. 응답 조립</strong></td><td>병원 안내 추가, 면책 문구, 추천 질문 생성</td><td><span class="bg">50~100ms</span></td></tr>
 <tr><td><strong>6. 응답 반환</strong></td><td>JSON 응답 전송</td><td><span class="bg">즉시</span></td></tr>
@@ -441,7 +451,7 @@ flowchart LR
 <tr><th>항목</th><th>상세</th></tr>
 <tr><td><strong>모델</strong></td><td><code>jhgan/ko-sroberta-multitask</code> (한국어 특화 Sentence Transformer)</td></tr>
 <tr><td><strong>방식</strong></td><td>Bi-encoder: 질문/FAQ 각각 독립 임베딩 → 코사인 유사도 비교</td></tr>
-<tr><td><strong>Top-K</strong></td><td>상위 10개 후보 반환 (<code>SEMANTIC_ANSWER_TOP_K</code>)</td></tr>
+<tr><td><strong>Top-K</strong></td><td>상위 후보 반환 (<code>기본 5개, 하이브리드 검색 시 최대 20개</code>)</td></tr>
 <tr><td><strong>캐싱</strong></td><td>인메모리 + Redis 분산 캐시 (멀티 워커 간 공유)</td></tr>
 <tr><td><strong>동기화</strong></td><td>매일 1회 FAQ 임베딩 자동 갱신 (Background Task)</td></tr>
 <tr><td><strong>모델 로딩</strong></td><td>모듈 레벨 싱글톤 (Gunicorn <code>--preload</code>로 COW 최적화)</td></tr>
@@ -450,9 +460,9 @@ flowchart LR
 <ol>
 <li>사용자 질문을 <strong>KiwiPy 형태소 분석기</strong>로 정규화 (명사, 동사, 보조동사 추출)</li>
 <li>정규화된 질문을 Sentence Transformer로 임베딩 벡터 생성</li>
-<li>사전 계산된 FAQ 임베딩과 코사인 유사도 계산 (Top-10 추출)</li>
+<li>사전 계산된 FAQ 임베딩과 코사인 유사도 계산 (Top-20 추출)</li>
 <li><strong>질문 유사도 0.5~0.9 구간</strong>: 추가로 답변(Answer) 유사도도 계산하여 보정</li>
-<li>짧은 질문 (&lt; 20자)은 임계값을 낮춰 매칭 기회 확대</li>
+<li>짧은 질문 (10자 이하 / 2단어 이하)은 임계값을 낮춰 매칭 기회 확대</li>
 </ol>
 <p><strong>Calibration (점수 보정)</strong>: 원시 코사인 유사도를 실제 신뢰도 스케일로 변환하여 임계값 판단의 정확도를 높임</p>
 </div>
@@ -491,7 +501,7 @@ flowchart LR
 <tr><th>구분</th><th>Bi-encoder</th><th>Cross-encoder</th></tr>
 <tr><td><strong>속도</strong></td><td>빠름 (독립 임베딩, 사전 계산 가능)</td><td>느림 (쌍별 추론 필요)</td></tr>
 <tr><td><strong>정확도</strong></td><td>상대적 낮음</td><td>높음 (질문-문서 상호작용 직접 모델링)</td></tr>
-<tr><td><strong>역할</strong></td><td>1차 후보 추출 (Top-10)</td><td>2차 정밀 재순위 (Top-3)</td></tr>
+<tr><td><strong>역할</strong></td><td>1차 후보 추출 (Top-20)</td><td>2차 정밀 재순위 (Top-3)</td></tr>
 <tr><td><strong>사용 시점</strong></td><td>모든 요청</td><td>Bi-encoder 후보가 있을 때</td></tr>
 </table>
 <p><strong>문서 전략</strong>: 불용어(정보, 기능, 변경, 확인, 방법 등) 필터링으로 핵심 내용만 Cross-encoder에 전달</p>
@@ -537,7 +547,7 @@ flowchart LR
 <li>Bi-encoder 상위 후보를 프롬프트에 포함하여 Gemini에 전달</li>
 <li>JSON 스키마 기반 구조화된 응답으로 의도 + FAQ ID + 신뢰도 반환</li>
 <li><strong>혼동 쌍(Confusion Pair) 감지</strong>: 상위 FAQ들이 의미적으로 유사하면 경고 → 더 정밀한 판단 유도</li>
-<li><strong>짧은 질문 특별 처리</strong>: 20자 미만 질문은 별도 임계값 적용</li>
+<li><strong>짧은 입력 가드</strong>: 3자 이하 질문은 <code>short_input</code> 응답 반환 (멀티턴 맥락이 있으면 바이패스), 시맨틱 매칭은 10자 이하/2단어 이하 시 별도 임계값 적용</li>
 <li><strong>모호한 키워드 감지</strong>: 다의어 탐지 시 Gemini 강제 호출</li>
 </ol>
 </div>
@@ -584,9 +594,42 @@ flowchart LR
 <tr><th>항목</th><th>상세</th></tr>
 <tr><td><strong>백엔드</strong></td><td>Redis (운영) / 인메모리 (개발)</td></tr>
 <tr><td><strong>세션 TTL</strong></td><td>1시간 (3,600초)</td></tr>
-<tr><td><strong>히스토리</strong></td><td>최대 10턴 저장, 7턴 로드</td></tr>
+<tr><td><strong>히스토리</strong></td><td>최대 5턴 저장/조회 (SESSION_MAX_TURNS), 파이프라인에서 최대 7턴 로드 (MAX_RECENT_HISTORY_TURNS)</td></tr>
 <tr><td><strong>상태 추적</strong></td><td>마지막 의도, FAQ ID, 병원명, 대기 질문</td></tr>
 </table>
+<div class="card" id="s4j">
+<h3 style="margin-top:0">4.10 ConversationContext (멀티턴 읽기 전용 파사드)</h3>
+<p><strong>파일</strong>: <code>src/agent/orchestration/conversation_context.py</code></p>
+<p>세션 상태의 <strong>단일 진입점</strong>으로, PreIntentPipeline에서 1회 생성되어 orchestrator, safety_router 등에 전달됩니다. 상태를 읽기만 하고 <strong>쓰기는 SessionService 책임</strong>입니다.</p>
+<table>
+<tr><th>항목</th><th>상세</th></tr>
+<tr><td><strong>역할</strong></td><td>멀티턴 대화 맥락의 읽기 전용 파사드</td></tr>
+<tr><td><strong>생성 시점</strong></td><td>PreIntentPipeline에서 1회 생성</td></tr>
+<tr><td><strong>MAX_SHORT_TERM_TURNS</strong></td><td>5 (최근 5턴의 대화 히스토리 유지)</td></tr>
+<tr><td><strong>SEED_BIAS_BOOST</strong></td><td>0.15 (환경변수 <code>MULTITURN_SEED_BIAS_BOOST</code>로 조정 가능)</td></tr>
+</table>
+<p><strong>주요 메서드</strong>:</p>
+<ul>
+<li><code>apply_seed_bias(candidates)</code>: 관련 FAQ 점수를 +0.15 부스트</li>
+<li><code>should_bypass_short_input_guard()</code>: 멀티턴 맥락 시 3자 입력 허용</li>
+<li><code>get_related_faq_ids()</code>: 맥락에서 관련 FAQ ID 집합 수집</li>
+<li><code>get_context_faq_ids_for_search()</code>: 시맨틱 검색 시 사용할 FAQ ID 반환</li>
+</ul>
+</div>
+
+<div class="card" id="s4k">
+<h3 style="margin-top:0">4.11 PreIntentPipeline (전처리 파이프라인)</h3>
+<p><strong>파일</strong>: <code>src/agent/pipeline/pre_intent_pipeline.py</code></p>
+<p>전처리 단계의 핵심 오케스트레이터로, <strong>21개 callable 의존성</strong>을 주입받아 초기화됩니다. 디스패처 패턴으로 정책 가드를 처리합니다.</p>
+<table>
+<tr><th>리졸버</th><th>역할</th><th>트리거 조건</th></tr>
+<tr><td><code>_resolve_pending_question()</code></td><td>이전 턴의 대기 질문 처리</td><td><code>pending_question</code> 존재</td></tr>
+<tr><td><code>_resolve_hospital_clarification()</code></td><td>병원 엔티티 명확화</td><td>병원명 모호 + 후보 존재</td></tr>
+<tr><td><code>_resolve_data_privacy()</code></td><td>개인정보 처리 관련 질문 라우팅</td><td>개인정보 키워드 감지</td></tr>
+<tr><td><code>_resolve_non_service()</code></td><td>서비스 범위 외 질문 처리</td><td>비서비스 추천 쿼리 감지</td></tr>
+</table>
+</div>
+
 </div>
 </section>
 
@@ -595,44 +638,67 @@ flowchart LR
 <h2>5. 의도(Intent) 분류 체계</h2>
 <div class="diagram"><pre class="mermaid">
 flowchart LR
-    MSG["사용자 질문"] --> CLASSIFY["IntentService\n(Gemini LLM)"]
-    CLASSIFY --> I_FAQ["FAQ\n(단일 FAQ 90%+ 매칭)"]
-    CLASSIFY --> I_MULTI["Multiple FAQ\n(2개+ FAQ 관련)"]
-    CLASSIFY --> I_MIXED["Mixed\n(FAQ + 실시간 키워드)"]
-    CLASSIFY --> I_DIRECT["Direct Answer\n(FAQ 없음, 사실 정보)"]
-    CLASSIFY --> I_CS["Customer Service\n(낮은 신뢰도 < 30%)"]
-    CLASSIFY --> I_INAPP["Inappropriate\n(PII/부적절 콘텐츠)"]
+    MSG["사용자 질문"] --> CLASSIFY["IntentService\n(Gemini LLM)\n+ IntentRegistry"]
+    CLASSIFY --> I_FAQ["faq\n(단일 FAQ 고신뢰)"]
+    CLASSIFY --> I_MULTI["multiple_faq\n(2개+ FAQ 관련)"]
+    CLASSIFY --> I_PARTIAL["partial_faq\n(부분 매칭)"]
+    CLASSIFY --> I_MIXED["mixed\n(FAQ + 실시간 키워드)"]
+    CLASSIFY --> I_DIRECT["direct_answer\n(FAQ 없음, 사실 정보)"]
+    CLASSIFY --> I_CS["intent_not_found\n(낮은 신뢰도)"]
+    CLASSIFY --> I_INAPP["personal_info / abuse\n(PII/부적절)"]
+    CLASSIFY --> I_PRIVACY["data_privacy_inquiry\n(개인정보 질문)"]
+    CLASSIFY --> I_INTRO["service_intro\n(서비스 소개)"]
+    CLASSIFY --> I_TIMEOUT["system_timeout\n(타임아웃)"]
     I_FAQ --> H_FAQ["FAQHandler\n단일 FAQ 응답"]
     I_MULTI --> H_MULTI["MultipleFAQHandler\nGemini로 종합 응답"]
+    I_PARTIAL --> H_PARTIAL["PartialFAQHandler\n부분 FAQ 후보 제시"]
     I_MIXED --> H_MIXED["MixedHandler\nFAQ + 실시간 정보 결합"]
     I_DIRECT --> H_DIRECT["DirectAnswerHandler\nGemini 직접 응답 (Grounding)"]
     I_CS --> H_CS["CustomerServiceHandler\n상담사 연결 안내"]
     I_INAPP --> H_SAFETY["InappropriateHandler\n안전 응답"]
+    I_PRIVACY --> H_PRIVACY["DataPrivacyInquiryHandler\n개인정보 안내"]
+    I_INTRO --> H_INTRO["ServiceIntroHandler\n서비스 소개"]
+    I_TIMEOUT --> H_TIMEOUT["SystemTimeoutHandler\n타임아웃 안내"]
 
     style CLASSIFY fill:#2b5ea7,stroke:#1e4a8a,color:#fff
     style I_FAQ fill:#2e7d32,stroke:#1b5e20,color:#fff
     style I_MULTI fill:#1565c0,stroke:#0d47a1,color:#fff
+    style I_PARTIAL fill:#0277bd,stroke:#01579b,color:#fff
     style I_MIXED fill:#6a1b9a,stroke:#4a148c,color:#fff
     style I_DIRECT fill:#e65100,stroke:#bf360c,color:#fff
     style I_CS fill:#c62828,stroke:#b71c1c,color:#fff
     style I_INAPP fill:#ad1457,stroke:#880e4f,color:#fff
+    style I_PRIVACY fill:#4527a0,stroke:#311b92,color:#fff
+    style I_INTRO fill:#00695c,stroke:#004d40,color:#fff
+    style I_TIMEOUT fill:#757575,stroke:#616161,color:#fff
     style H_FAQ fill:#43a047,stroke:#2e7d32,color:#fff
     style H_MULTI fill:#1e88e5,stroke:#1565c0,color:#fff
+    style H_PARTIAL fill:#0288d1,stroke:#0277bd,color:#fff
     style H_MIXED fill:#8e24aa,stroke:#6a1b9a,color:#fff
     style H_DIRECT fill:#ef6c00,stroke:#e65100,color:#fff
     style H_CS fill:#e53935,stroke:#c62828,color:#fff
     style H_SAFETY fill:#d81b60,stroke:#ad1457,color:#fff
+    style H_PRIVACY fill:#5e35b1,stroke:#4527a0,color:#fff
+    style H_INTRO fill:#00897b,stroke:#00695c,color:#fff
+    style H_TIMEOUT fill:#9e9e9e,stroke:#757575,color:#fff
 </pre></div>
 
 <h3>의도별 처리 방식</h3>
+<p style="font-size:13px;color:var(--text-muted);">별칭 호환: <code>CUSTOMER_SERVICE</code> = <code>intent_not_found</code>, <code>INAPPROPRIATE</code> = <code>personal_info</code></p>
 <table>
 <tr><th>의도</th><th>트리거 조건</th><th>Gemini 호출</th><th>응답 방식</th></tr>
-<tr><td><strong>FAQ</strong></td><td>단일 FAQ 고신뢰 매칭</td><td><span class="bg">생략 가능</span></td><td>FAQ 원문 + 병원 안내</td></tr>
-<tr><td><strong>Multiple FAQ</strong></td><td>2개+ FAQ 매칭 + 접속사/조건문</td><td><span class="bb">O (종합)</span></td><td>여러 FAQ 통합 응답</td></tr>
-<tr><td><strong>Mixed</strong></td><td>FAQ 키워드 + 실시간 키워드 공존</td><td><span class="bp">O (혼합)</span></td><td>FAQ + 실시간 정보 결합</td></tr>
-<tr><td><strong>Direct Answer</strong></td><td>FAQ 매칭 실패 + 사실 정보 질문</td><td><span class="bo">O (생성)</span></td><td>Gemini 직접 답변 (Grounding)</td></tr>
-<tr><td><strong>Customer Service</strong></td><td>신뢰도 &lt; 30% 또는 불명확</td><td><span class="bg">X</span></td><td>고객센터 안내 메시지</td></tr>
-<tr><td><strong>Inappropriate</strong></td><td>PII 요청 / 부적절 콘텐츠</td><td><span class="br">X</span></td><td>안전 거부 응답</td></tr>
+<tr><td><strong>faq</strong></td><td>단일 FAQ 고신뢰 매칭</td><td><span class="bg">생략 가능</span></td><td>FAQ 원문 + 병원 안내</td></tr>
+<tr><td><strong>multiple_faq</strong></td><td>2개+ FAQ 매칭 + 접속사/조건문</td><td><span class="bb">O (종합)</span></td><td>여러 FAQ 통합 응답</td></tr>
+<tr><td><strong>partial_faq</strong></td><td>부분적 FAQ 매칭 (신뢰도 중간)</td><td><span class="bg">X</span></td><td>FAQ 후보 제시 + 확인 요청</td></tr>
+<tr><td><strong>mixed</strong></td><td>FAQ 키워드 + 실시간 키워드 공존</td><td><span class="bp">O (혼합)</span></td><td>FAQ + 실시간 정보 결합</td></tr>
+<tr><td><strong>direct_answer</strong></td><td>FAQ 매칭 실패 + 사실 정보 질문</td><td><span class="bo">O (생성)</span></td><td>Gemini 직접 답변 (Grounding)</td></tr>
+<tr><td><strong>intent_not_found</strong></td><td>신뢰도 부족 또는 불명확</td><td><span class="bg">X</span></td><td>고객센터 안내 메시지</td></tr>
+<tr><td><strong>personal_info / abuse_detected</strong></td><td>PII 요청 / 부적절 콘텐츠</td><td><span class="br">X</span></td><td>안전 거부 응답</td></tr>
+<tr><td><strong>data_privacy_inquiry</strong></td><td>개인정보 처리 관련 질문</td><td><span class="bg">X</span></td><td>개인정보 처리 안내</td></tr>
+<tr><td><strong>service_intro</strong></td><td>서비스 소개 요청</td><td><span class="bg">X</span></td><td>서비스 안내 응답</td></tr>
+<tr><td><strong>system_timeout</strong></td><td>시스템 타임아웃 발생</td><td><span class="br">X</span></td><td>재시도 안내 메시지</td></tr>
+<tr><td><strong>short_input</strong></td><td>3자 이하 입력 (멀티턴 맥락 없음)</td><td><span class="bg">X</span></td><td>추가 입력 요청</td></tr>
+<tr><td><strong>customer_error</strong></td><td>시스템 내부 오류</td><td><span class="br">X</span></td><td>에러 안내 메시지</td></tr>
 </table>
 </section>
 
@@ -642,9 +708,9 @@ flowchart LR
 <div class="diagram"><pre class="mermaid">
 flowchart LR
     QUERY["정규화된 질문"] --> EXACT_M["1단계: ExactMatcher\n키워드 기반 빠른 매칭"]
-    EXACT_M --> BI_ENC["2단계: Bi-Encoder\n(ko-sroberta-multitask)\n코사인 유사도 Top-10"]
+    EXACT_M --> BI_ENC["2단계: Bi-Encoder\n(ko-sroberta-multitask)\n코사인 유사도 Top-20"]
     BI_ENC --> CROSS_ENC["3단계: Cross-Encoder\n(bge-reranker-v2-m3)\nQuery-Doc 쌍 정밀 점수"]
-    CROSS_ENC --> EVAL["통합 점수 산출\n키워드 40% + 시맨틱 60%"]
+    CROSS_ENC --> EVAL["통합 점수 산출\n시맨틱 유사도 + 키워드 보너스"]
     EVAL -->|"score >= 0.92"| ACCEPT["FAQ 응답 확정\n(Gemini 생략)"]
     EVAL -->|"0.60 ~ 0.92"| INTENT_CLS["IntentService로\n의도 분류 진행"]
     EVAL -->|"score < 0.60"| INTENT_CLS2["IntentService로\n의도 분류 진행"]
@@ -679,30 +745,38 @@ flowchart LR
         D["resolved_entities\n(병원명 등)"]
         E["pending_question\n(대기 질문)"]
     end
+    subgraph Facade["ConversationContext (읽기 전용 파사드)"]
+        CTX["ConversationContext\nPreIntentPipeline에서 1회 생성\n읽기 전용"]
+    end
     subgraph Storage["저장소"]
         R["Redis\n(운영 환경) TTL: 1시간"]
         M["In-Memory\n(개발 환경)"]
     end
     subgraph Features["멀티턴 기능"]
-        F1["후속 질문 바이어스\n관련 FAQ 우선 매칭"]
+        F1["Seed Bias\napply_seed_bias()\n관련 FAQ +0.15 부스트"]
         F2["병원 컨텍스트 유지\n동일 병원 후속 질문"]
         F3["명확화 처리\n모호한 질문 → 확인 요청"]
-        F4["세션 리셋\n특정 키워드로 초기화"]
+        F4["Short Input Bypass\n멀티턴 시 3자 입력 허용"]
+        F5["세션 리셋\nRESET_KEYWORDS 또는\nSESSION_MAX_TURNS 초과"]
     end
-    State --> R
-    State --> M
-    State --> F1
-    State --> F2
-    State --> F3
-    State --> F4
+    State --> CTX
+    CTX --> R
+    CTX --> M
+    CTX --> F1
+    CTX --> F2
+    CTX --> F3
+    CTX --> F4
+    CTX --> F5
 </pre></div>
 
 <h3>멀티턴 동작 방식</h3>
 <ol>
-<li><strong>후속 질문 바이어스</strong>: 이전 의도가 FAQ이고 <code>last_faq_id</code>가 있으면, 관련 FAQ에 가중치를 부여</li>
+<li><strong>Seed Bias (후속 질문 바이어스)</strong>: 이전 의도가 FAQ이고 <code>last_faq_id</code>가 있으면, <code>ConversationContext.apply_seed_bias()</code>가 관련 FAQ 점수를 <strong>+0.15 부스트</strong> (환경변수 <code>MULTITURN_SEED_BIAS_BOOST</code>로 조정)</li>
 <li><strong>병원 컨텍스트 유지</strong>: <code>resolved_entities.hospital_name</code>을 후속 질문에서 재사용</li>
 <li><strong>명확화 처리</strong>: 복수 FAQ 후보 + 짧은 질문 → 사용자에게 확인 요청</li>
-<li><strong>세션 리셋</strong>: 설정된 리셋 키워드 입력 시 대화 초기화</li>
+<li><strong>Short Input Bypass</strong>: 멀티턴 맥락(<code>active_faq_ids</code> 또는 <code>pending_question</code>)이 있으면 3자 이하 입력도 <code>short_input</code> 가드를 통과</li>
+<li><strong>세션 리셋 (키워드)</strong>: <code>RESET_KEYWORDS</code> 입력 시 대화 초기화</li>
+<li><strong>세션 리셋 (턴 초과)</strong>: <code>SESSION_MAX_TURNS</code> (5턴) 초과 시 "reset" 타입으로 세션 자동 초기화</li>
 </ol>
 </section>
 
@@ -711,7 +785,7 @@ flowchart LR
 <h2>8. 배포 아키텍처</h2>
 <ul>
 <li><strong>컨테이너</strong>: Docker (Python 3.12 slim + PyTorch CPU + Intel IPEX)</li>
-<li><strong>프로세스</strong>: Gunicorn + UvicornWorker (dev: 3 워커 / prod: 8 워커)</li>
+<li><strong>프로세스</strong>: Gunicorn + UvicornWorker (dev: 3 워커 / prod: 5 워커)</li>
 <li><strong>CI/CD</strong>: Jenkins → SSH 배포</li>
 <li><strong>모니터링</strong>: Prometheus (FastAPI 자동 계측, CPU/메모리 메트릭)</li>
 <li><strong>Warm-up</strong>: 리더 워커가 모델 로드 + 임베딩 사전 계산 → 나머지 워커는 Redis에서 수신</li>
